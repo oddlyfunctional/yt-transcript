@@ -9,7 +9,7 @@ API_KEY = os.environ.get("YOUTUBE_API_KEY")
 CACHE_FILE = "cache.json"
 PROXY_LIST = [
     "http://123.45.67.89:8080",
-    "http://98.76.54.32:3128"
+    "http://98.76.54.32:3128",
     "http://51.178.111.229:3128",
     "http://45.77.24.239:8080",
     "http://91.205.232.94:3128",
