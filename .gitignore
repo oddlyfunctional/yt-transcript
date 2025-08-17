@@ -31,3 +31,5 @@ Thumbs.db
 
 # Render deployment artifacts
 *.pyc
+
+local.db
