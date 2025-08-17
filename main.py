@@ -1,3 +1,4 @@
+import os
 from flask import Flask, request, jsonify
 from db import init_db
 from youtube_data import get_youtube_client, get_channel_id_by_name, get_all_video_ids, get_transcript_text
