@@ -4,19 +4,13 @@ from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, No
 from youtube_transcript_api.proxies import GenericProxyConfig
 import time, random, logging, json, os
 from youtube_data import get_all_video_ids
+from proxy_randomizer import RegisteredProviders
 
 API_KEY = os.environ.get("YOUTUBE_API_KEY")
 CACHE_FILE = "cache.json"
-PROXY_LIST = [
-    "http://123.45.67.89:8080",
-    "http://98.76.54.32:3128",
-    "http://51.178.111.229:3128",
-    "http://45.77.24.239:8080",
-    "http://91.205.232.94:3128",
-    "http://103.216.82.146:6667",
-    "http://185.105.48.58:8080",
-]
 RATE_LIMIT_SECONDS = 1.0
+RP = RegisteredProviders()
+RP.parse_providers()
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s %(message)s')
 
@@ -39,7 +33,7 @@ def get_transcript(video_id):
         return cache["transcripts"][video_id]
 
     log_cache_hit_or_miss(f"transcript for {video_id}", False)
-    proxy = random.choice(PROXY_LIST) if PROXY_LIST else None
+    proxy = RP.get_random_proxy().get_proxy()
     api = YouTubeTranscriptApi(
         proxy_config=GenericProxyConfig(
             http_url=proxy
