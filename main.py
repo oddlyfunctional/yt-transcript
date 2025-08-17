@@ -2,13 +2,14 @@ import os
 from flask import Flask, request, jsonify
 from db import init_db
 from youtube_data import get_youtube_client, get_channel_id_by_name, get_all_video_ids, get_transcript_text
+import traceback
 
 app = Flask(__name__)
 init_db()
 youtube = get_youtube_client()
 
 @app.route("/fetch_transcripts")
-def transcripts():
+def fetch_transcripts():
     channel_name = request.args.get("channel")
     if not channel_name:
         return jsonify({"error": "Missing channel parameter"}), 400
@@ -21,11 +22,11 @@ def transcripts():
             text = get_transcript_text(vid_id, title)
             results[vid_id] = {"title": title, "transcript": text}
         return jsonify(results)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        return jsonify({"error": traceback.format_exc()}), 500
 
 @app.route("/transcripts")
-def cached_title_transcripts():
+def transcripts():
     from db import SessionLocal, Transcript, Video
 
     channel_name = request.args.get("channel")
@@ -50,9 +51,9 @@ def cached_title_transcripts():
 
         session.close()
         return jsonify(results)
-    except Exception as e:
+    except Exception:
         session.close()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": traceback.format_exc()}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

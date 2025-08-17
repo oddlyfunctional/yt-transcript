@@ -1,5 +1,4 @@
 import time
-import random
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
 from youtube_transcript_api.proxies import GenericProxyConfig
 from googleapiclient.discovery import build
@@ -110,7 +109,7 @@ def get_transcript_text(video_id, title=None):
             time.sleep(wait)
             wait *= 2
 
-    session.add(Transcript(video_id=video_id, title=title or "unknown", text=text))
+    session.add(Transcript(video_id=video_id, text=text))
     session.commit()
     session.close()
     return text
