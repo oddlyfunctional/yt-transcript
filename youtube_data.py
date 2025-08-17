@@ -1,53 +1,116 @@
+import time
+import random
+from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
+from youtube_transcript_api.proxies import GenericProxyConfig
 from googleapiclient.discovery import build
-import logging, time, json
+from db import SessionLocal, Channel, Video, Transcript
+import os
+from datetime import datetime
+from proxy_randomizer import RegisteredProviders
 
-def get_all_video_ids(channel_name, api_key, cache):
-    if channel_name in cache.get("videoIds", {}):
-        logging.info(f"Cache hit: videoIds for {channel_name}")
-        return cache["videoIds"][channel_name]
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY")
+YOUTUBE_API_SERVICE_NAME = "youtube"
+YOUTUBE_API_VERSION = "v3"
+RATE_LIMIT_SECONDS = 1  # Configurable
+RP = RegisteredProviders()
+RP.parse_providers()
 
-    logging.info(f"Cache miss: videoIds for {channel_name}")
+def log(msg):
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
 
-    youtube = build("youtube", "v3", developerKey=api_key)
+def get_youtube_client():
+    return build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=YOUTUBE_API_KEY)
 
-    if channel_name in cache.get("channelIds", {}):
-        channel_id = cache["channelIds"][channel_name]
-        logging.info(f"Cache hit: channelId for {channel_name}")
-    else:
-        request = youtube.channels().list(part="id", forUsername=channel_name)
-        response = request.execute()
-        items = response.get("items", [])
-        if not items:
-            raise ValueError(f"Channel {channel_name} not found")
-        channel_id = items[0]["id"]
-        cache["channelIds"][channel_name] = channel_id
-        with open("cache.json", "w") as f:
-            json.dump(cache, f, indent=2)
+def get_channel_id_by_name(youtube, name):
+    session = SessionLocal()
+    channel = session.query(Channel).filter(Channel.name == name).first()
+    if channel:
+        log(f"[CACHE HIT] Channel {name} → {channel.channel_id}")
+        session.close()
+        return channel.channel_id
 
-    videos = []
+    log(f"[CACHE MISS] Fetching channelId for {name}")
+    response = youtube.search().list(
+        q=name,
+        type="channel",
+        part="id",
+        maxResults=1
+    ).execute()
+    items = response.get("items", [])
+    if not items:
+        session.close()
+        raise ValueError(f"No channel found for {name}")
+    channel_id = items[0]["id"]["channelId"]
+    session.add(Channel(name=name, channel_id=channel_id))
+    session.commit()
+    session.close()
+    return channel_id
+
+def get_all_video_ids(youtube, channel_id):
+    session = SessionLocal()
+    videos = session.query(Video).filter(Video.channel_id == channel_id).all()
+    if videos:
+        log(f"[CACHE HIT] Videos for channel {channel_id}")
+        session.close()
+        return [(v.video_id, v.title) for v in videos]
+
+    log(f"[CACHE MISS] Fetching videos for channel {channel_id}")
+    all_videos = []
     next_page_token = None
     while True:
-        request = youtube.search().list(
-            part="id,snippet",
+        response = youtube.search().list(
             channelId=channel_id,
-            maxResults=50,
+            part="snippet",
             order="date",
-            pageToken=next_page_token,
-            type="video"
-        )
-        response = request.execute()
-        for item in response.get("items", []):
-            vid = item["id"]["videoId"]
+            maxResults=50,
+            pageToken=next_page_token
+        ).execute()
+        items = response.get("items", [])
+        for item in items:
+            vid_id = item["id"]["videoId"]
             title = item["snippet"]["title"]
-            videos.append({"id": vid, "title": title})
-
+            all_videos.append((vid_id, title))
+            session.add(Video(video_id=vid_id, channel_id=channel_id, title=title))
+        session.commit()
         next_page_token = response.get("nextPageToken")
         if not next_page_token:
             break
+        time.sleep(RATE_LIMIT_SECONDS)
+    session.close()
+    return all_videos
 
-    cache["videoIds"][channel_name] = videos
-    with open("cache.json", "w") as f:
-        json.dump(cache, f, indent=2)
+def get_transcript_text(video_id, title=None):
+    session = SessionLocal()
+    transcript = session.query(Transcript).filter(Transcript.video_id == video_id).first()
+    if transcript:
+        log(f"[CACHE HIT] Transcript for {video_id}")
+        session.close()
+        return transcript.text
 
-    logging.info(f"Fetched {len(videos)} videos for channel {channel_name}")
-    return videos
+    log(f"[CACHE MISS] Fetching transcript for {video_id}")
+    text = None
+    wait = RATE_LIMIT_SECONDS
+
+    proxy = RP.get_random_proxy().get_proxy()
+    api = YouTubeTranscriptApi(
+        proxy_config=GenericProxyConfig(
+            http_url=proxy
+        )
+    )
+    for attempt in range(5):
+        try:
+            data = api.fetch(video_id)
+            text = " ".join([x["text"] for x in data])
+            break
+        except (TranscriptsDisabled, NoTranscriptFound, VideoUnavailable) as e:
+            log(f"[WARN] No transcript for {video_id}: {e}")
+            break
+        except Exception as e:
+            log(f"[ERROR] Attempt {attempt+1} failed for {video_id}: {e}")
+            time.sleep(wait)
+            wait *= 2
+
+    session.add(Transcript(video_id=video_id, title=title or "unknown", text=text))
+    session.commit()
+    session.close()
+    return text
