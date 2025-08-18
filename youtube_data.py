@@ -90,14 +90,14 @@ def get_transcript_text(video_id, title=None):
     text = None
     wait = RATE_LIMIT_SECONDS
 
-    proxy = RP.get_random_proxy().get_proxy()
-    api = YouTubeTranscriptApi(
-        proxy_config=GenericProxyConfig(
-            http_url=proxy
-        )
-    )
     for attempt in range(5):
         try:
+            proxy = RP.get_random_proxy().get_proxy()
+            api = YouTubeTranscriptApi(
+                proxy_config=GenericProxyConfig(
+                    http_url=proxy
+                )
+            )
             data = api.fetch(video_id)
             text = " ".join([x["text"] for x in data])
             break
@@ -109,7 +109,8 @@ def get_transcript_text(video_id, title=None):
             time.sleep(wait)
             wait *= 2
 
-    session.add(Transcript(video_id=video_id, text=text))
-    session.commit()
+    if text != None:
+        session.add(Transcript(video_id=video_id, text=text))
+        session.commit()
     session.close()
     return text
